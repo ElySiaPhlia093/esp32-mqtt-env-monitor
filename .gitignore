@@ -1,0 +1,46 @@
+# ============================================================
+# 车间环境智能监测与控制系统 —— Git 忽略规则
+# ============================================================
+
+# ---------- 敏感配置（含 WiFi 密码 / OneNET Token，绝不能上传） ----------
+# 仓库里只保留 config.example.py 模板，使用时复制为 config.py 再填自己的信息
+config.py
+esp32/config.py
+backend/config.py
+
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# ---------- 虚拟环境 ----------
+venv/
+.venv/
+env/
+
+# ---------- 前端 ----------
+node_modules/
+dist/
+.vite/
+npm-debug.log*
+yarn-error.log*
+
+# ---------- 数据库（含本机历史数据） ----------
+*.db
+*.sqlite3
+
+# ---------- 设备端运行时产物 ----------
+esp32/cache.json
+cache.json
+
+# ---------- 编辑器 / 操作系统 ----------
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ---------- 备份文件 ----------
+*_备份*.docx
+*~$*
