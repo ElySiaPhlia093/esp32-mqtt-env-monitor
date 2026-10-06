@@ -6,6 +6,8 @@
 import time
 from datetime import datetime
 
+from sqlalchemy import desc
+
 import config
 import onenet_service
 from database import SessionLocal
@@ -25,13 +27,34 @@ def get_or_create_device(db):
 
 
 def sync_once():
-    """拉取最新数据并处理（每次定时触发调用）"""
+    """拉取设备在线状态与最新数据并处理（每次定时触发调用）"""
     db = SessionLocal()
     try:
+        device = get_or_create_device(db)
+        now = datetime.now()
+
+        # 1. 判断设备在线状态（双保险）
+        #    首选 OneNET 设备详情接口的真实在线状态；接口异常(None)时，
+        #    回退到“本地超时”判断。
+        #    【不能再用“能查到属性”判断在线】离线设备的最后一份数据云端会
+        #    一直保留，属性查询照样有返回，但设备其实已经掉线。
+        online = onenet_service.get_device_online()
+        if online is True:
+            device.status = "online"
+            device.last_report = now
+        elif online is False:
+            device.status = "offline"
+        else:
+            # 云端状态查不到 -> 回退：太久没有新数据就判离线
+            if (device.last_report is None or
+                    (now - device.last_report).total_seconds() > config.ONLINE_TIMEOUT_SECONDS):
+                device.status = "offline"
+
+        # 2. 拉取最新属性值
         data = onenet_service.get_latest_property()
         if not data:
+            db.commit()
             return
-        device = get_or_create_device(db)
 
         temp = data.get("temp")
         humidity = data.get("humidity")
@@ -50,30 +73,49 @@ def sync_once():
         elif humidity is not None and humidity > config.ALARM_HUMI_MAX:
             status = "humi_high_alarm"
 
-        # 1. 保存环境数据
-        env = EnvData(
-            device_id=device.id,
-            temp=temp,
-            humidity=humidity,
-            lux=lux,
-            air=air,
-            relay=relay,
-            status=status,
-            report_time=datetime.now(),
-        )
-        db.add(env)
+        # 3. 入库判断：
+        #    (a) 数据发生变化 -> 入库（避免同一个固定值被反复写入）；
+        #    (b) 设备在线且距上一条已超过 HEARTBEAT_SECONDS -> 补一条心跳，
+        #        保证趋势图连续（离线时不会补）。
+        last = (db.query(EnvData)
+                .filter_by(device_id=device.id)
+                .order_by(desc(EnvData.id)).first())
+        changed = last is None or (
+            last.temp != temp or last.humidity != humidity or
+            last.lux != lux or last.air != air or bool(last.relay) != relay)
+        heartbeat = (device.status == "online" and last is not None and
+                     last.report_time is not None and
+                     (now - last.report_time).total_seconds() >= config.HEARTBEAT_SECONDS)
 
-        # 2. 更新设备在线状态
-        device.status = "online"
-        device.last_report = datetime.now()
+        if changed:
+            # 数据发生变化说明设备确实在实时上报，可作为在线证据
+            device.last_report = now
 
-        # 3. 判断是否需要产生告警记录
-        check_alerts(db, device, temp, humidity, air)
+        if changed or heartbeat:
+            env = EnvData(
+                device_id=device.id,
+                temp=temp,
+                humidity=humidity,
+                lux=lux,
+                air=air,
+                relay=relay,
+                status=status,
+                report_time=now,
+            )
+            db.add(env)
+            # 判断是否需要产生告警记录
+            check_alerts(db, device, temp, humidity, air)
 
         db.commit()
-        print("[同步] %s 温度=%s 湿度=%s 光照=%s 空气=%s 状态=%s" % (
-            datetime.now().strftime("%H:%M:%S"),
-            temp, humidity, lux, air, status))
+        if changed:
+            tag = ""
+        elif heartbeat:
+            tag = "（心跳补点）"
+        else:
+            tag = "（无变化未入库）"
+        print("[同步] %s 在线=%s 温度=%s 湿度=%s 光照=%s 空气=%s 状态=%s%s" % (
+            now.strftime("%H:%M:%S"), device.status,
+            temp, humidity, lux, air, status, tag))
     except Exception as e:
         print("[同步] 异常:", e)
     finally:

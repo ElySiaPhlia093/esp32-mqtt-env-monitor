@@ -8,6 +8,33 @@ import requests
 import config
 
 
+def get_device_online():
+    """查询设备在 OneNET 平台上的真实在线状态
+
+    返回: True=在线 / False=离线 / None=查询失败（由上层回退到本地超时判断）
+    """
+    headers = {"Authorization": config.ONENET_TOKEN}
+    params = {
+        "product_id": config.PRODUCT_ID,
+        "device_name": config.DEVICE_NAME,
+    }
+    try:
+        res = requests.get(config.ONENET_DEVICE_DETAIL_URL,
+                           headers=headers, params=params, timeout=10)
+        result = res.json()
+        if result.get("code") != 0:
+            print("[OneNET] 设备详情查询失败:", result.get("msg"))
+            return None
+        status = result.get("data", {}).get("status")
+        if status is None:
+            return None
+        # 平台返回的 status 可能是 1/0 或 true/false 或 "online"/"offline"
+        return str(status).strip().lower() in ("1", "true", "online")
+    except requests.exceptions.RequestException as e:
+        print("[OneNET] 设备详情请求异常:", e)
+        return None
+
+
 def get_latest_property():
     """获取设备最新属性值
     返回示例: {"temp": 29.5, "humidity": 60, "lux": 300, "air": 120, "relay": 0}

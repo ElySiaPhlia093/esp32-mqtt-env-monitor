@@ -19,10 +19,21 @@ DEVICE_NAME = "your_device_name"
 # OneNET 查询接口地址（勿改）
 ONENET_PROPERTY_URL = "https://iot-api.heclouds.com/thingmodel/query-device-property"
 ONENET_HISTORY_URL = "https://iot-api.heclouds.com/thingmodel/query-device-property-history"
+# 设备详情接口：用于获取设备在平台上的真实在线状态（勿改）
+ONENET_DEVICE_DETAIL_URL = "https://iot-api.heclouds.com/device/detail"
 
 # ---------- 数据同步配置 ----------
 SYNC_INTERVAL_SECONDS = 30   # 每 30 秒从 OneNET 拉一次数据入库
 HISTORY_QUERY_HOURS = 24     # 拉取最近 24 小时历史数据
+
+# 在线状态判断（双保险）：
+#   首选调用设备详情接口拿平台真实在线状态；若该接口异常，
+#   则回退到“本地超时”——超过下面这个秒数没有新数据即判为离线。
+ONLINE_TIMEOUT_SECONDS = 90
+
+# 心跳补点：数据没变化时，每隔这么多秒也补存一条，
+#   保证趋势图连续（仅在设备在线时生效，离线不会补）。
+HEARTBEAT_SECONDS = 300   # 5 分钟
 
 # ---------- 数据库 ----------
 DATABASE_PATH = "monitor.db"
